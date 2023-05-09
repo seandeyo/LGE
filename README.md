@@ -5,7 +5,7 @@ This is the repository for "A logical word embedding for learning grammar" (http
 `parse.c` is the code (written in C) for parsing a set of sentences. Compile it with `gcc -O2 parse.c -lm -o parse`. To use modified versions of the algorithm --- the ones described in the manuscript include allowing for homographs, allowing bit flips, allowing multiple base types per node --- you can edit the definition of `nwc`, `bitflip`, `multibase`, etc at the beginning of the code and recompile. `parse` expects seven arguments:
 - the name of the text file containing the training sentences
 - the number of sentences to use from that text file
-- the name of a "seed" file (described in the manuscript); use `noseed` to not use any seed, or use any file matching the format of the `.lex` files produced by the algorithm
+- the name of a "seed" file (described in the manuscript); to not use any seed you can say `no` or `none` or anything other than a valid file name; to use a seed you can provide the name of a file whose format matches that of the `.lex` files produced by the algorithm
 - the number of iterations to execute; it usually takes several thousand to find good parses
 - the number of trials to run
 - the desired name for results files
