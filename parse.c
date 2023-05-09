@@ -1017,7 +1017,7 @@ void printlex()
                     }
             fprintf(fp, "\n");
         }
-    fprintf(fp, "-------\n");
+    fprintf(fp, "--------\n");
     fclose(fp);
 }
 
