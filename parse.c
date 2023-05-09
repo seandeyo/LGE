@@ -12,17 +12,20 @@ char **dictionary;
 int ng, ni, *imin, *iminmin, *imin_pi, gpi, gpimin, ***bpl, ***bpr;
 double *bpld, *bprd;
 // variables for clustering
-int nwc, **wordcluster_size, **wordcluster_number;
+int **wordcluster_size, **wordcluster_number;
 double **wordcluster_err, ****wordcluster_center;
 // variables involved in the main iteration
 double beta, *****v, *****vA, ****vB, *****vR, err, besterr, *worderr, totworderr, **layererr, totlayererr, **biterr;
 // file names
-char errfile[100], statsfile[100], solfile[100], treesfile[100];
+char errfile[100], statsfile[100], lexfile[100], treesfile[100];
 // options
-int only1pi = 0;   // whether to limit each layer to at most 1 pair insertion (0 for no, 1 for yes)
-int rootbits = 0;  // number of "on" bits to allow in root node (0 for identity)
+int ng = 3;        // number of generators/base types/bytes; 3 is standard but more can be useful if using nwc>1 (see below)
+int ni = 3;        // number of bits per byte; 3 is standard (a base type, its left inverse, and its right inverse)
+int nwc = 1;       // number of clusters to allow per word (must be at least 1, can be more if words have homographs)
 int bitflip = 0;   // number of bit flips to allow in branching events (0, 1, 2)
 int multibase = 0; // whether to allow multiple base types per category vector (0 for no, 1 for yes)
+int rootbits = 0;  // number of "on" bits to allow in root node (0 for identity)
+int only1pi = 0;   // whether to limit each layer to at most 1 pair insertion (0 for no, 1 for yes)
 
 static inline double sq(double diff)
 {
@@ -38,7 +41,6 @@ double urand()
 void preserve(int n1, int n2, double ****vo)
 {
     int n, g, i;
-    // printf(" preserve\n");
     for (n = 0; n < n2 - n1 - 1; ++n)
     {
         bpld[n] = 0.;
@@ -69,11 +71,9 @@ double contract(int l, double **voA, double **voB, double **voC)
 {
     int g, i;
     double delta, dmin, dist = 0., delta_pi, dmin_pi, best_pi = 0.;
-    // printf(" contract\n");
     gpi = -1;
     for (g = 0; g < ng; ++g)
     {
-        // printf("  %d\n",1);
         dmin = 0.;
         // A and B must agree on the leftmost i bits
         // A and C must agree on all subsequent bits
@@ -89,7 +89,6 @@ double contract(int l, double **voA, double **voB, double **voC)
         // now loop over i>=1 and do the same:
         for (i = 1; i <= ni; ++i)
         {
-            // printf("  %d\n",i);
             // zero out the i-1 bit between A & C
             if (voA[g][i - 1] + voC[g][i - 1] >= 1.)
             {
@@ -133,7 +132,6 @@ double contract(int l, double **voA, double **voB, double **voC)
             best_pi = dmin_pi - dmin;
         }
     }
-    // printf("imin: %d\n",imin[0]);
     if (only1pi && best_pi < 0) // if the best pair insertion actually did reduce the distance
         dist += best_pi;
     return dist;
@@ -147,9 +145,7 @@ void layerproj(int d, int l, double ****vo)
     int nmin, n, n1 = l * (l + 1) / 2, n2 = n1 + l + 1, g, i, b;
     double delta, dn, dp;
 
-    // printf(" preserve\n");
     preserve(n1, n2, vo);
-    // printf(" contract %d\n",0);
     dp = contract(l, vo[n1][1], vo[n2][0], vo[n2 + 1][0]);
     nmin = 0;
     for (g = 0; g < ng; ++g)
@@ -163,7 +159,6 @@ void layerproj(int d, int l, double ****vo)
     delta = 0.;
     for (n = 1; n < l; ++n)
     {
-        // printf(" contract %d\n",n);
         dn = contract(l, vo[n1 + n][1], vo[n2 + n][0], vo[n2 + 1 + n][0]);
         delta += dn - dp + bpld[n - 1] - bprd[n - 1];
         dp = dn;
@@ -182,7 +177,7 @@ void layerproj(int d, int l, double ****vo)
         }
     }
 
-    // printf(" left\n"); // preserve the type vectors to the left of the branching point
+    // preserve the type vectors to the left of the branching point
     for (n = 0; n < nmin; ++n)
         for (g = 0; g < ng; ++g)
             for (i = 0; i < ni; ++i)
@@ -190,7 +185,7 @@ void layerproj(int d, int l, double ****vo)
                 vA[d][n1 + n][1][g][i] = 1. * bpl[n][g][i];
                 vA[d][n2 + n][0][g][i] = 1. * bpl[n][g][i];
             }
-    // printf(" right\n"); // preserve the type vectors to the right of the branching point
+    // preserve the type vectors to the right of the branching point
     for (n = nmin; n < l; ++n)
         for (g = 0; g < ng; ++g)
             for (i = 0; i < ni; ++i)
@@ -198,7 +193,6 @@ void layerproj(int d, int l, double ****vo)
                 vA[d][n1 + 1 + n][1][g][i] = 1. * bpr[n][g][i];
                 vA[d][n2 + 2 + n][0][g][i] = 1. * bpr[n][g][i];
             }
-    // printf(" middle\n");
     for (g = 0; g < ng; ++g)
     {
         for (i = 0; i < iminmin[g]; ++i)
@@ -383,7 +377,6 @@ int iteratewordcluster(int w, double *****vo)
         { // if this lexical vector has changed its cluster
             wordcluster_number[d][nn] = bc;
             changes++;
-            // printf("%d.%d is now in word cluster %d\n", d, nn, wordcluster_number[d][nn]);
         }
     }
     // reset the clusters
@@ -882,11 +875,11 @@ int getdata(char *textfile)
     return 1;
 }
 
-int readlex(char *lexfile)
+int readlex(char *seedfile)
 {
     FILE *fp;
 
-    fp = fopen(lexfile, "r");
+    fp = fopen(seedfile, "r");
     if (!fp)
     {
         printf("lexicon file not found\n");
@@ -988,7 +981,7 @@ int eqcode(double **vec, int **code)
     return 1;
 }
 
-void printsol()
+void printlex()
 {
     FILE *fp;
     int d, l, g, i, d1, l1;
@@ -997,7 +990,7 @@ void printsol()
         for (l = 0; l <= layers[d]; l++)
             covered[d][l] = 0;
 
-    fp = fopen(solfile, "w");
+    fp = fopen(lexfile, "w");
     for (d = 0; d < data; d++)
         for (l = 0; l <= layers[d]; l++)
         {
@@ -1065,7 +1058,7 @@ void printtrees()
     fclose(fp);
 }
 
-int solve(char *errfile, int maxiter, int iterstride, double stoperr)
+int solve(char *errfile, int maxiter, double stoperr)
 {
     int iter, d, l, w, g, i;
     besterr = 1.;
@@ -1074,28 +1067,25 @@ int solve(char *errfile, int maxiter, int iterstride, double stoperr)
     for (iter = 1; iter <= maxiter && (err >= stoperr || iter == 1); ++iter)
     {
         iterate();
-        if (iter % iterstride == 0 || err < stoperr)
+        // print errors by bit
+        for (g = 0; g < ng; g++)
         {
-            // print errors by bit
-            for (g = 0; g < ng; g++)
+            for (i = 0; i < ni; i++)
             {
-                for (i = 0; i < ni; i++)
-                {
-                    fprintf(fp, "%.6f", sqrt(biterr[g][i]));
-                    if (i + 1 < ni)
-                        fprintf(fp, ",");
-                }
-                if (g + 1 < ng)
-                    fprintf(fp, ";");
+                fprintf(fp, "%.6f", sqrt(biterr[g][i]));
+                if (i + 1 < ni)
+                    fprintf(fp, ",");
             }
-            fprintf(fp, "\n");
-            // update solutions if the current error is the lowest yet
-            if (err < besterr)
-            {
-                besterr = err;
-                printsol();
-                printtrees();
-            }
+            if (g + 1 < ng)
+                fprintf(fp, ";");
+        }
+        fprintf(fp, "\n");
+        // update solutions if the current error is the lowest yet
+        if (err < besterr)
+        {
+            besterr = err;
+            printlex();
+            printtrees();
         }
     }
     fclose(fp);
@@ -1104,41 +1094,37 @@ int solve(char *errfile, int maxiter, int iterstride, double stoperr)
 
 int main(int argc, char *argv[])
 {
-    char *textfile, *lexfile, *name;
+    char *textfile, *seedfile, *name;
     int iter, maxiter, iterstride, trials, t, c, solcount;
     double stoperr, aveiter, elapsed, avesec;
     FILE *fp;
     clock_t start;
 
-    if (argc == 12)
+    if (argc == 7)
     {
         textfile = argv[1];
         ns = atoi(argv[2]);
-        lexfile = argv[3];
-        ng = atoi(argv[4]);
-        ni = 3;
-        nwc = atoi(argv[5]);
-        beta = atof(argv[6]);
-        maxiter = atoi(argv[7]);
-        iterstride = atoi(argv[8]);
-        stoperr = atof(argv[9]) * atof(argv[9]); // squared error is more convenient
-        trials = atoi(argv[10]);
-        name = argv[11];
+        seedfile = argv[3];
+        maxiter = atoi(argv[4]);
+        beta = .5;             // iteration speed parameter (should be between 0 and 1)
+        stoperr = sq(.000001); // stop iterating if error drops below this
+        trials = atoi(argv[5]);
+        name = argv[6];
     }
     else
     {
-        printf("expected eleven arguments: textfile, sentences, lexical seed, base types, clusters allowed per word, beta, maxiter, iterstride, stoperr, trials, name\n");
+        printf("expected six arguments: textfile, sentences, lexical seed, iterations, trials, name\n");
         return 1;
     }
 
     sprintf(errfile, "%s.err", name);
     sprintf(statsfile, "%s.stats", name);
-    sprintf(solfile, "%s.sol", name);
+    sprintf(lexfile, "%s.lex", name);
     sprintf(treesfile, "%s.trees", name);
 
     if (!getdata(textfile))
         return 1;
-    if (!readlex(lexfile))
+    if (strcmp(seedfile, "noseed") != 0 && !readlex(seedfile))
         return 1;
 
     fp = fopen(statsfile, "w");
@@ -1156,9 +1142,9 @@ int main(int argc, char *argv[])
     {
         randstart();
         sprintf(errfile, "%s%d.err", name, t);
-        sprintf(solfile, "%s%d.sol", name, t);
+        sprintf(lexfile, "%s%d.lex", name, t);
         sprintf(treesfile, "%s%d.trees", name, t);
-        iter = solve(errfile, maxiter, iterstride, stoperr);
+        iter = solve(errfile, maxiter, stoperr);
         if (iter)
         {
             ++solcount;
